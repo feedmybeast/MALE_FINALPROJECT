@@ -1,4 +1,4 @@
-#%%
+#%% 1.1. Import modules
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_datasets as tfds
@@ -11,21 +11,30 @@ import tf_keras
 import pickle
 import os
 from tensorflow.keras.callbacks import EarlyStopping, LearningRateScheduler
-#%%
-# Load the Cassava dataset
+#%% 1.2. Load the Cassava dataset (TensorFlow dataset)
+# NOTE: It can take a lot of time (I have tested and it's about 10-20')!!!
+# tensorflow_datasets is saved in C:\Users\Admin\tensorflow_datasets
 (ds_train, ds_validation, ds_test), ds_info = tfds.load(
     name='cassava',
     split=['train', 'validation', 'test'],
     with_info=True,
     as_supervised=True
 )
-#%%
+#%% 1.3. Datasets informations
+'''Cassava consists of leaf images for the cassava plant depicting 
+1.healthy and four (4) disease conditions:
+2.Cassava Mosaic Disease (CMD) 
+3.Cassava Bacterial Blight (CBB) 
+4.Cassava Greem Mite (CGM)
+5.Cassava Brown Streak Disease (CBSD)'''
+
 print(f"Number of training examples: {ds_info.splits['train'].num_examples}")
 print(f"Number of validation examples: {ds_info.splits['validation'].num_examples}")
 print(f"Number of test examples: {ds_info.splits['test'].num_examples}")
 print(f"Number of classes: {ds_info.features['label'].num_classes}")
 print(f"Class names: {ds_info.features['label'].names}")
 
+#%% 1.4. Preprocessing datasets
 # Image size for MobileNetV3
 IMG_SIZE = 224
 
@@ -56,8 +65,7 @@ def prepare_dataset(ds, train=False):
 train_ds = prepare_dataset(ds_train, train=True)
 val_ds = prepare_dataset(ds_validation)
 test_ds = prepare_dataset(ds_test)
-#%%
-# Create the model
+#%% 2.1. Create the model
 def create_model():
     model_url = "https://tfhub.dev/google/imagenet/mobilenet_v3_large_100_224/feature_vector/5"
     base_model = hub.KerasLayer(model_url, trainable=False)
@@ -72,15 +80,14 @@ def create_model():
     ])
 
     return model
-#%%
-# Learning rate schedule
+#%% 2.2. Learning rate schedule
 def lr_schedule(epoch):
     lr = 0.001
     if epoch > 5:
         lr *= 0.1
     return lr
 
-# Implement k-fold cross-validation
+# 2.3. Implement k-fold cross-validation
 def k_fold_cross_validation(k=5):
     # Get the total number of examples in the dataset
     total_examples = tf.data.experimental.cardinality(ds_train).numpy()
@@ -116,8 +123,8 @@ def k_fold_cross_validation(k=5):
             epochs=10,
             validation_data=val_data,
             callbacks=[
-                tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True),
-                tf.keras.callbacks.LearningRateScheduler(lr_schedule)
+                tf_keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True),
+                tf_keras.callbacks.LearningRateScheduler(lr_schedule)
             ]
         )
         
@@ -141,18 +148,18 @@ def k_fold_cross_validation(k=5):
         plt.show()
     
     print(f"Average accuracy across all folds: {np.mean(all_scores):.4f}")
-#%%
-# Run k-fold cross-validation
+# 2.3. Run k-fold cross-validation
 k_fold_cross_validation()
-#%%
-# Train the final model
+
+#%% 2.4. Train the final model
+# NOTE: It also takes a lot of time!!!
 model = create_model()
 model.compile(
     optimizer=tf_keras.optimizers.Adam(learning_rate=0.001),
     loss=tf.keras.losses.SparseCategoricalCrossentropy(),
     metrics=['accuracy']
 )
-#%%
+
 history = model.fit(
     train_ds,
     validation_data=val_ds,
@@ -162,12 +169,11 @@ history = model.fit(
         tf_keras.callbacks.LearningRateScheduler(lr_schedule)
     ]
 )
-#%%
-# Evaluate the model
+#%% 3.1. Evaluate the model
 test_loss, test_accuracy = model.evaluate(test_ds)
 print(f"Test accuracy: {test_accuracy:.2f}")
 
-# Plot training history
+# 3.2. Plot training history
 plt.figure(figsize=(12, 4))
 plt.subplot(1, 2, 1)
 plt.plot(history.history['accuracy'], label='Training Accuracy')
@@ -182,11 +188,11 @@ plt.legend()
 plt.title('Model Loss')
 plt.show()
 
-# Save the model
+# 3.3. Save the model
 model.save('plant_disease_model.h5')
 print("Model saved as 'plant_disease_model.h5'")
 
-# Function to predict on a single image
+# 3.4. Function to predict on a single image
 def predict_image(image_path):
     img = tf.keras.preprocessing.image.load_img(image_path, target_size=(IMG_SIZE, IMG_SIZE))
     img_array = tf.keras.preprocessing.image.img_to_array(img)
@@ -200,7 +206,7 @@ def predict_image(image_path):
 
     return class_name, confidence
 
-# Visualize sample images and their predictions
+# 3.5. Visualize sample images and their predictions
 def visualize_predictions(num_images=5):
     plt.figure(figsize=(15, 3*num_images))
     for i, (image, label) in enumerate(test_ds.take(num_images)):
@@ -227,7 +233,7 @@ def visualize_predictions(num_images=5):
 
 visualize_predictions()
 
-# Plot confusion matrix
+# 3.6. Plot confusion matrix
 def plot_confusion_matrix():
     y_pred = []
     y_true = []
@@ -248,8 +254,7 @@ def plot_confusion_matrix():
     print(classification_report(y_true, y_pred, target_names=ds_info.features['label'].names))
 
 plot_confusion_matrix()
-
-# GUI implementation
+#%% 4.1. GUI implementation
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image, ImageTk
@@ -266,11 +271,11 @@ def open_image():
         class_name, confidence = predict_image(file_path)
         result_label.config(text=f"Predicted class: {class_name}\nConfidence: {confidence:.2f}")
 
-# Create the main window
+# 4.2. Create the main window
 root = tk.Tk()
 root.title("Plant Disease Classifier")
 
-# Create and pack widgets
+# 4.3. Create and pack widgets
 open_button = tk.Button(root, text="Open Image", command=open_image)
 open_button.pack(pady=10)
 
@@ -280,7 +285,7 @@ image_label.pack()
 result_label = tk.Label(root, text="")
 result_label.pack(pady=10)
 
-# Start the GUI event loop
+# 4.4. Start the GUI event loop
 root.mainloop()
 
 # %%
