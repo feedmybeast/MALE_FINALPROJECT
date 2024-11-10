@@ -1,4 +1,4 @@
-
+#%%
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_datasets as tfds
@@ -8,7 +8,10 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import confusion_matrix, classification_report
 import seaborn as sns
 import tf_keras
-
+import pickle
+import os
+from tensorflow.keras.callbacks import EarlyStopping, LearningRateScheduler
+#%%
 # Load the Cassava dataset
 (ds_train, ds_validation, ds_test), ds_info = tfds.load(
     name='cassava',
@@ -16,7 +19,7 @@ import tf_keras
     with_info=True,
     as_supervised=True
 )
-
+#%%
 print(f"Number of training examples: {ds_info.splits['train'].num_examples}")
 print(f"Number of validation examples: {ds_info.splits['validation'].num_examples}")
 print(f"Number of test examples: {ds_info.splits['test'].num_examples}")
@@ -53,7 +56,7 @@ def prepare_dataset(ds, train=False):
 train_ds = prepare_dataset(ds_train, train=True)
 val_ds = prepare_dataset(ds_validation)
 test_ds = prepare_dataset(ds_test)
-
+#%%
 # Create the model
 def create_model():
     model_url = "https://tfhub.dev/google/imagenet/mobilenet_v3_large_100_224/feature_vector/5"
@@ -61,15 +64,15 @@ def create_model():
 
     num_classes = ds_info.features['label'].num_classes
 
-    model = tf.keras.Sequential([
+    model = tf_keras.Sequential([
         base_model,
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.5),
-        tf.keras.layers.Dense(num_classes, activation='softmax')
+        tf_keras.layers.Dense(128, activation='relu'),
+        tf_keras.layers.Dropout(0.5),
+        tf_keras.layers.Dense(num_classes, activation='softmax')
     ])
 
     return model
-
+#%%
 # Learning rate schedule
 def lr_schedule(epoch):
     lr = 0.001
@@ -79,31 +82,39 @@ def lr_schedule(epoch):
 
 # Implement k-fold cross-validation
 def k_fold_cross_validation(k=5):
+    # Get the total number of examples in the dataset
+    total_examples = tf.data.experimental.cardinality(ds_train).numpy()
+    
+    # Create index array
+    indices = np.arange(total_examples)
+    
+    # Initialize KFold
     kfold = KFold(n_splits=k, shuffle=True, random_state=42)
     
     all_scores = []
-    for fold, (train_indices, val_indices) in enumerate(kfold.split(ds_train)):
+    for fold, (train_indices, val_indices) in enumerate(kfold.split(indices)):
         print(f"Fold {fold + 1}/{k}")
+        
+        # Create datasets for this fold
+        train_data = ds_train.take(train_indices.size).shuffle(buffer_size=train_indices.size)
+        val_data = ds_train.take(val_indices.size).shuffle(buffer_size=val_indices.size)
+        
+        # Prepare datasets
+        train_data = prepare_dataset(train_data, train=True)
+        val_data = prepare_dataset(val_data)
         
         model = create_model()
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+            optimizer=tf_keras.optimizers.Adam(learning_rate=0.001),
             loss=tf.keras.losses.SparseCategoricalCrossentropy(),
             metrics=['accuracy']
         )
         
-        # Create datasets for this fold
-        train_data = tf.data.Dataset.from_tensor_slices(train_indices).map(lambda x: next(iter(ds_train.skip(x))))
-        val_data = tf.data.Dataset.from_tensor_slices(val_indices).map(lambda x: next(iter(ds_train.skip(x))))
-        
-        train_data = prepare_dataset(train_data, train=True)
-        val_data = prepare_dataset(val_data)
-        
         # Train the model
         history = model.fit(
             train_data,
-            validation_data=val_data,
             epochs=10,
+            validation_data=val_data,
             callbacks=[
                 tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True),
                 tf.keras.callbacks.LearningRateScheduler(lr_schedule)
@@ -114,29 +125,44 @@ def k_fold_cross_validation(k=5):
         scores = model.evaluate(val_data)
         all_scores.append(scores[1])  # Append accuracy
         
-    print(f"Average accuracy across all folds: {np.mean(all_scores):.2f}")
-
+        # Plot training history
+        plt.figure(figsize=(12, 4))
+        plt.subplot(1, 2, 1)
+        plt.plot(history.history['accuracy'], label='Training Accuracy')
+        plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+        plt.title(f'Fold {fold + 1} - Training and Validation Accuracy')
+        plt.legend()
+        
+        plt.subplot(1, 2, 2)
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
+        plt.title(f'Fold {fold + 1} - Training and Validation Loss')
+        plt.legend()
+        plt.show()
+    
+    print(f"Average accuracy across all folds: {np.mean(all_scores):.4f}")
+#%%
 # Run k-fold cross-validation
 k_fold_cross_validation()
-
+#%%
 # Train the final model
 model = create_model()
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+    optimizer=tf_keras.optimizers.Adam(learning_rate=0.001),
     loss=tf.keras.losses.SparseCategoricalCrossentropy(),
     metrics=['accuracy']
 )
-
+#%%
 history = model.fit(
     train_ds,
     validation_data=val_ds,
     epochs=10,
     callbacks=[
-        tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True),
-        tf.keras.callbacks.LearningRateScheduler(lr_schedule)
+        tf_keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True),
+        tf_keras.callbacks.LearningRateScheduler(lr_schedule)
     ]
 )
-
+#%%
 # Evaluate the model
 test_loss, test_accuracy = model.evaluate(test_ds)
 print(f"Test accuracy: {test_accuracy:.2f}")
@@ -256,3 +282,5 @@ result_label.pack(pady=10)
 
 # Start the GUI event loop
 root.mainloop()
+
+# %%
